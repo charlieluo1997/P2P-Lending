@@ -1,0 +1,127 @@
+---
+title: "Lab 4"
+fontsize: 18pt
+output:
+  html_document:
+    df_print: paged
+arthor: Hongbing Luo
+---
+
+
+```{r, warning = FALSE, message=FALSE}
+# Load up packages
+#install.packages("readr")
+library(readr)
+#install.packages("rpart")
+library(rpart)
+#install.packages("rpart.plot")
+library(rpart.plot)
+#install.packages("magrittr")
+library(magrittr)
+#install.packages("dplyr")
+library(dplyr)
+```
+
+###Part I Data Loading and Cleanup
+```{r warning = FALSE, message=FALSE}
+p2p_training <- read_csv("/Users/charlie/Downloads/Lab 4/LoanStats3c.csv", skip = 1)
+p2p_test <- read_csv("/Users/charlie/Downloads/Lab 4/LoanStats3d.csv", skip = 1)
+
+p2p_training <- p2p_training[c(1:(nrow(p2p_training)-2)),]
+p2p_test <- p2p_test[c(1:(nrow(p2p_test)-2)),]
+
+set.seed(10000)
+```
+
+###Part II Descriptive Statistics
+```{r warning = FALSE, message=FALSE}
+# Creaete a Binary Variable
+p2p_training$highgrade <- ifelse((p2p_training$grade == "A" | p2p_training$grade == "B"), 1, 0)
+
+# Proportion
+AorB_grade <- p2p_training %>% filter(p2p_training$grade == "A" | p2p_training$grade == "B") %>% tally()
+proportion <- AorB_grade$n / nrow(p2p_training)
+proportion
+
+# t.test on highgrade and debtor median level
+income_median <- median(p2p_training$annual_inc)
+debtor_income <- ifelse(p2p_training$annual_inc > income_median, 1, 0)
+t.test(highgrade ~ debtor_income, data = p2p_training)
+
+# t.test on highgrade and loan request
+loan_median <- median(p2p_training$loan_amnt)
+loan_amount <- ifelse(p2p_training$loan_amnt > loan_median, 1, 0)
+t.test(highgrade ~ loan_amount, data = p2p_training)
+
+# t.test on highgrade and whether debtor rents a home
+rent_home <- ifelse(p2p_training$home_ownership == "RENT", 1, 0)
+t.test(highgrade ~ rent_home, data = p2p_training)
+```
+
+###Part III Build a Logistic Regression Based Classifier on the Training Data
+```{r warning = FALSE, message=FALSE}
+regression <- glm(highgrade ~ annual_inc + home_ownership + loan_amnt + verification_status + purpose, data = p2p_training, family=binomial)
+summary(regression)
+
+# Predict
+reg_predict <- predict(regression, type="response")
+
+# The probability threshold above which to classify loans as "high grade" is 0.5
+p2p_training$highgrade_predict <- reg_predict > 0.5
+
+# Accuracy
+mean(p2p_training$highgrade == p2p_training$highgrade_predict)
+
+# Setting all rows to 0
+p2p_training$Orow <- 0
+mean(p2p_training$highgrade == p2p_training$Orow)
+
+# Randomly assign 1 or 0
+p2p_training$random <- sample(c(1,0), nrow(p2p_training), replace = TRUE)
+mean(p2p_training$highgrade == p2p_training$random)
+```
+
+###Part IV Build a Classification Tree on the Training Data
+```{r warning = FALSE, message=FALSE}
+fit = rpart(highgrade ~ annual_inc + home_ownership + loan_amnt + verification_status + purpose, data = p2p_training, method = "class")
+
+# Plot the tree
+prp(fit, type = 2)
+
+z = predict(fit, p2p_training, type="class")
+
+mean(z==p2p_training$highgrade)
+```
+This machine learning based classifier is a bit less accurate than the one based on logistic regression.
+
+###Part V Model Performance on the Test Data
+```{r warning = FALSE, message=FALSE}
+# Delete the rows that contain education purpose
+p2p_test <- subset(p2p_test, purpose != "educational", drop = TRUE)
+
+# Flip a coin (aka. randomly assign 1 and 0)
+p2p_test$highgrade <- ifelse((p2p_test$grade == "A" | p2p_training$grade == "B"), 1, 0)
+p2p_test$random <- sample(c(1,0), nrow(p2p_test), replace = TRUE)
+mean(p2p_test$highgrade == p2p_test$random)
+
+# Assign 0 to all rows
+p2p_test$Orow <- 0
+mean(p2p_test$highgrade == p2p_test$Orow)
+```
+
+###Part VI Additional Measures of Performance
+```{r warning = FALSE, message=FALSE}
+test_z <- predict(fit, p2p_test, type="class")
+
+# Preision
+table(test_z[p2p_test$highgrade == 1])
+
+# Recall
+table(p2p_test$highgrade[test_z == 1])
+```
+I think accuracy would be the most important to focus on. It is more direct when it comes to judging how accurate the model will predict.
+
+However, if we choose accuracy as the primary factor, we need to consider our data set. Accuracy is the most handy when the data set is symmetric, that is values of false positive and false negatives are almost the same. So the benefit of using accuracy is it's the most intuitive of the three, but the cost is loss of precision if the data set is not symmetric.
+
+
+
